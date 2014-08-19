@@ -4143,14 +4143,16 @@ Attribution.prototype.page = function(page){
  */
 
 Attribution.prototype.track = function(track) {
-  var event = track.event();
-  var properties = track.properties();
   var user = this.analytics.user();
+  var data = {
+    properties: track.properties(),
+    event:      track.event()
+  }
+
   if(user.id())
-    properties.user_id = user.id();
-  properties.event = event;
-  properties.timestamp = track.timestamp();
-  push('track', properties);
+    data.user_id = user.id();
+
+  push('track', data);
 }
 
 /**
@@ -6155,9 +6157,15 @@ Alias.prototype.userId = function(){
 }, {"./utils":138,"./facade":131}],
 133: [function(require, module, exports) {
 
+/**
+ * Module dependencies.
+ */
+
 var inherit = require('./utils').inherit;
-var Facade = require('./facade');
+var address = require('./address');
+var isEmail = require('is-email');
 var newDate = require('new-date');
+var Facade = require('./facade');
 
 /**
  * Expose `Group` facade.
@@ -6184,6 +6192,12 @@ function Group (dictionary) {
  */
 
 inherit(Group, Facade);
+
+/**
+ * Mixin address traits.
+ */
+
+address(Group.prototype);
 
 /**
  * Get the facade's action.
@@ -6216,6 +6230,19 @@ Group.prototype.created = function(){
 };
 
 /**
+ * Get the group's email, falling back to the group ID if it's a valid email.
+ *
+ * @return {String}
+ */
+
+Group.prototype.email = function () {
+  var email = this.proxy('traits.email');
+  if (email) return email;
+  var groupId = this.groupId();
+  if (isEmail(groupId)) return groupId;
+};
+
+/**
  * Get the group's traits.
  *
  * @param {Object} aliases
@@ -6242,6 +6269,14 @@ Group.prototype.traits = function (aliases) {
 };
 
 /**
+ * Special traits.
+ */
+
+Group.prototype.name = Facade.proxy('traits.name');
+Group.prototype.industry = Facade.proxy('traits.industry');
+Group.prototype.employees = Facade.proxy('traits.employees');
+
+/**
  * Get traits or properties.
  *
  * TODO: remove me
@@ -6255,9 +6290,70 @@ Group.prototype.properties = function(){
     || {};
 };
 
-}, {"./utils":138,"./facade":131,"new-date":142}],
+}, {"./utils":138,"./address":165,"is-email":166,"new-date":142,"./facade":131}],
+165: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var get = require('obj-case');
+
+/**
+ * Add address getters to `proto`.
+ *
+ * @param {Function} proto
+ */
+
+module.exports = function(proto){
+  proto.zip = trait('postalCode', 'zip');
+  proto.country = trait('country');
+  proto.street = trait('street');
+  proto.state = trait('state');
+  proto.city = trait('city');
+
+  function trait(a, b){
+    return function(){
+      var traits = this.traits();
+      return get(traits, 'address.' + a)
+        || get(traits, a)
+        || (b ? get(traits, 'address.' + b) : null)
+        || (b ? get(traits, b) : null);
+    };
+  }
+};
+
+}, {"obj-case":140}],
+166: [function(require, module, exports) {
+
+/**
+ * Expose `isEmail`.
+ */
+
+module.exports = isEmail;
+
+
+/**
+ * Email address matcher.
+ */
+
+var matcher = /.+\@.+\..+/;
+
+
+/**
+ * Loosely validate an email address.
+ *
+ * @param {String} string
+ * @return {Boolean}
+ */
+
+function isEmail (string) {
+  return matcher.test(string);
+}
+}, {}],
 134: [function(require, module, exports) {
 
+var address = require('./address');
 var Facade = require('./facade');
 var isEmail = require('is-email');
 var newDate = require('new-date');
@@ -6293,6 +6389,12 @@ function Identify (dictionary) {
  */
 
 inherit(Identify, Facade);
+
+/**
+ * Mixin address traits.
+ */
+
+address(Identify.prototype);
 
 /**
  * Get the facade's action.
@@ -6467,12 +6569,16 @@ Identify.prototype.age = function(){
  * .photoUrl needed because help-scout
  * implementation uses `.avatar || .photoUrl`.
  *
+ * .avatarUrl needed because trakio uses it.
+ *
  * @return {Mixed}
  */
 
 Identify.prototype.avatar = function(){
   var traits = this.traits();
-  return get(traits, 'avatar') || get(traits, 'photoUrl');
+  return get(traits, 'avatar')
+    || get(traits, 'photoUrl')
+    || get(traits, 'avatarUrl');
 };
 
 /**
@@ -6501,35 +6607,8 @@ Identify.prototype.address = Facade.proxy('traits.address');
 Identify.prototype.gender = Facade.proxy('traits.gender');
 Identify.prototype.birthday = Facade.proxy('traits.birthday');
 
-}, {"./facade":131,"is-email":165,"new-date":142,"./utils":138,"obj-case":140,"trim":166}],
-165: [function(require, module, exports) {
-
-/**
- * Expose `isEmail`.
- */
-
-module.exports = isEmail;
-
-
-/**
- * Email address matcher.
- */
-
-var matcher = /.+\@.+\..+/;
-
-
-/**
- * Loosely validate an email address.
- *
- * @param {String} string
- * @return {Boolean}
- */
-
-function isEmail (string) {
-  return matcher.test(string);
-}
-}, {}],
-166: [function(require, module, exports) {
+}, {"./address":165,"./facade":131,"is-email":166,"new-date":142,"./utils":138,"obj-case":140,"trim":167}],
+167: [function(require, module, exports) {
 
 exports = module.exports = trim;
 
@@ -6829,7 +6908,7 @@ function currency(val) {
   if (!isNaN(val)) return val;
 }
 
-}, {"./utils":138,"./facade":131,"./identify":134,"is-email":165,"obj-case":140}],
+}, {"./utils":138,"./facade":131,"./identify":134,"is-email":166,"obj-case":140}],
 136: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
@@ -6874,11 +6953,19 @@ Page.prototype.action = function(){
 };
 
 /**
- * Proxies
+ * Fields
  */
 
 Page.prototype.category = Facade.field('category');
 Page.prototype.name = Facade.field('name');
+
+/**
+ * Proxies.
+ */
+
+Page.prototype.title = Facade.proxy('properties.title');
+Page.prototype.path = Facade.proxy('properties.path');
+Page.prototype.url = Facade.proxy('properties.url');
 
 /**
  * Get the page properties mixing `category` and `name`.
@@ -7071,7 +7158,7 @@ function error(fn, message, img){
   };
 }
 
-}, {"querystring":130,"substitute":167}],
+}, {"querystring":130,"substitute":168}],
 130: [function(require, module, exports) {
 
 /**
@@ -7147,8 +7234,8 @@ exports.stringify = function(obj){
   return pairs.join('&');
 };
 
-}, {"trim":166,"type":7}],
-167: [function(require, module, exports) {
+}, {"trim":167,"type":7}],
+168: [function(require, module, exports) {
 
 /**
  * Expose `substitute`
@@ -7282,8 +7369,8 @@ Bugsnag.prototype.identify = function(identify){
   extend(window.Bugsnag.metaData, identify.traits());
 };
 
-}, {"analytics.js-integration":84,"is":87,"extend":126,"on-error":168}],
-168: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"is":87,"extend":126,"on-error":169}],
+169: [function(require, module, exports) {
 
 /**
  * Expose `onError`.
@@ -7406,8 +7493,8 @@ Chartbeat.prototype.page = function(page){
   window.pSUPERFLY.virtualPage(props.path, name || props.title);
 };
 
-}, {"analytics.js-integration":84,"defaults":169,"on-body":120}],
-169: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"defaults":170,"on-body":120}],
+170: [function(require, module, exports) {
 /**
  * Expose `defaults`.
  */
@@ -7607,8 +7694,8 @@ ClickTale.prototype.track = function(track){
   window.ClickTaleEvent(track.event());
 };
 
-}, {"load-date":170,"domify":121,"each":4,"analytics.js-integration":84,"is":87,"use-https":86,"on-body":120}],
-170: [function(require, module, exports) {
+}, {"load-date":171,"domify":121,"each":4,"analytics.js-integration":84,"is":87,"use-https":86,"on-body":120}],
+171: [function(require, module, exports) {
 
 
 /*
@@ -7986,8 +8073,8 @@ Curebit.prototype.completedOrder = function(track){
   });
 };
 
-}, {"analytics.js-integration":84,"global-queue":125,"facade":128,"throttle":171,"to-iso-string":172,"clone":173,"each":4,"bind":96}],
-171: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"global-queue":125,"facade":128,"throttle":172,"to-iso-string":173,"clone":174,"each":4,"bind":96}],
+172: [function(require, module, exports) {
 
 /**
  * Module exports.
@@ -8020,7 +8107,7 @@ function throttle (func, wait) {
 }
 
 }, {}],
-172: [function(require, module, exports) {
+173: [function(require, module, exports) {
 
 /**
  * Expose `toIsoString`.
@@ -8062,7 +8149,7 @@ function pad (number) {
   return n.length === 1 ? '0' + n : n;
 }
 }, {}],
-173: [function(require, module, exports) {
+174: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8229,8 +8316,8 @@ function convertDate(date){
   return Math.floor(date.getTime() / 1000);
 }
 
-}, {"alias":174,"convert-dates":175,"facade":128,"analytics.js-integration":84}],
-174: [function(require, module, exports) {
+}, {"alias":175,"convert-dates":176,"facade":128,"analytics.js-integration":84}],
+175: [function(require, module, exports) {
 
 var type = require('type');
 
@@ -8294,7 +8381,7 @@ function aliasByFunction (obj, convert) {
   return output;
 }
 }, {"type":7,"clone":144}],
-175: [function(require, module, exports) {
+176: [function(require, module, exports) {
 
 var is = require('is');
 
@@ -8401,7 +8488,7 @@ Drip.prototype.identify = function (identify) {
   push('identify', identify.traits());
 };
 
-}, {"alias":174,"analytics.js-integration":84,"is":87,"load-script":124,"global-queue":125}],
+}, {"alias":175,"analytics.js-integration":84,"is":87,"load-script":124,"global-queue":125}],
 29: [function(require, module, exports) {
 
 /**
@@ -8464,7 +8551,7 @@ Errorception.prototype.identify = function(identify){
   extend(window._errs.meta, traits);
 };
 
-}, {"extend":126,"analytics.js-integration":84,"on-error":168,"global-queue":125}],
+}, {"extend":126,"analytics.js-integration":84,"on-error":169,"global-queue":125}],
 30: [function(require, module, exports) {
 
 /**
@@ -9631,8 +9718,8 @@ function metrics(obj, data){
   return ret;
 }
 
-}, {"analytics.js-integration":84,"global-queue":125,"object":176,"canonical":177,"use-https":86,"facade":128,"callback":89,"load-script":124,"obj-case":140,"each":4,"type":7,"url":178,"is":87}],
-176: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"global-queue":125,"object":177,"canonical":178,"use-https":86,"facade":128,"callback":89,"load-script":124,"obj-case":140,"each":4,"type":7,"url":179,"is":87}],
+177: [function(require, module, exports) {
 
 /**
  * HOP ref.
@@ -9718,7 +9805,7 @@ exports.isEmpty = function(obj){
   return 0 == exports.length(obj);
 };
 }, {}],
-177: [function(require, module, exports) {
+178: [function(require, module, exports) {
 module.exports = function canonical () {
   var tags = document.getElementsByTagName('link');
   for (var i = 0, tag; tag = tags[i]; i++) {
@@ -9726,7 +9813,7 @@ module.exports = function canonical () {
   }
 };
 }, {}],
-178: [function(require, module, exports) {
+179: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -10114,7 +10201,7 @@ Heap.prototype.track = function(track){
   window.heap.track(track.event(), track.properties());
 };
 
-}, {"analytics.js-integration":84,"alias":174}],
+}, {"analytics.js-integration":84,"alias":175}],
 40: [function(require, module, exports) {
 
 /**
@@ -10328,7 +10415,7 @@ function convertDates(properties){
   return convert(properties, function(date){ return date.getTime(); });
 }
 
-}, {"analytics.js-integration":84,"global-queue":125,"convert-dates":175}],
+}, {"analytics.js-integration":84,"global-queue":125,"convert-dates":176}],
 44: [function(require, module, exports) {
 
 /**
@@ -10405,7 +10492,7 @@ Improvely.prototype.track = function(track){
   window.improvely.goal(props);
 };
 
-}, {"analytics.js-integration":84,"alias":174}],
+}, {"analytics.js-integration":84,"alias":175}],
 45: [function(require, module, exports) {
 
 /**
@@ -10563,7 +10650,7 @@ Inspectlet.prototype.track = function(track){
   push('tagSession', track.event());
 };
 
-}, {"analytics.js-integration":84,"global-queue":125,"alias":174,"clone":173}],
+}, {"analytics.js-integration":84,"global-queue":125,"alias":175,"clone":174}],
 47: [function(require, module, exports) {
 
 /**
@@ -10722,7 +10809,7 @@ function formatDate(date) {
   return Math.floor(date / 1000);
 }
 
-}, {"analytics.js-integration":84,"convert-dates":175,"defaults":169,"is-email":165,"load-script":124,"is-empty":119,"alias":174,"each":4,"when":127,"is":87}],
+}, {"analytics.js-integration":84,"convert-dates":176,"defaults":170,"is-email":166,"load-script":124,"is-empty":119,"alias":175,"each":4,"when":127,"is":87}],
 48: [function(require, module, exports) {
 
 /**
@@ -11162,8 +11249,8 @@ function prefix(event, properties){
   return prefixed;
 }
 
-}, {"analytics.js-integration":84,"global-queue":125,"facade":128,"alias":174,"batch":179,"each":4,"is":87}],
-179: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"global-queue":125,"facade":128,"alias":175,"batch":180,"each":4,"is":87}],
+180: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -11323,8 +11410,8 @@ Batch.prototype.end = function(cb){
   return this;
 };
 
-}, {"emitter":180}],
-180: [function(require, module, exports) {
+}, {"emitter":181}],
+181: [function(require, module, exports) {
 
 /**
  * Expose `Emitter`.
@@ -11587,7 +11674,7 @@ Klaviyo.prototype.track = function(track){
   }));
 };
 
-}, {"analytics.js-integration":84,"global-queue":125,"next-tick":98,"alias":174}],
+}, {"analytics.js-integration":84,"global-queue":125,"next-tick":98,"alias":175}],
 52: [function(require, module, exports) {
 
 /**
@@ -11718,7 +11805,7 @@ function convert(traits){
   return arr;
 }
 
-}, {"analytics.js-integration":84,"clone":173,"each":4,"facade":128,"when":127}],
+}, {"analytics.js-integration":84,"clone":174,"each":4,"facade":128,"when":127}],
 54: [function(require, module, exports) {
 
 /**
@@ -11878,7 +11965,7 @@ Lytics.prototype.track = function(track){
   window.jstag.send(props);
 };
 
-}, {"analytics.js-integration":84,"alias":174}],
+}, {"analytics.js-integration":84,"alias":175}],
 56: [function(require, module, exports) {
 
 /**
@@ -12103,8 +12190,8 @@ function lowercase(arr){
   return ret;
 }
 
-}, {"alias":174,"clone":173,"convert-dates":175,"analytics.js-integration":84,"is":87,"to-iso-string":172,"indexof":110,"obj-case":140,"some":181}],
-181: [function(require, module, exports) {
+}, {"alias":175,"clone":174,"convert-dates":176,"analytics.js-integration":84,"is":87,"to-iso-string":173,"indexof":110,"obj-case":140,"some":182}],
+182: [function(require, module, exports) {
 
 /**
  * some
@@ -12807,7 +12894,7 @@ Pingdom.prototype.loaded = function(){
   return !! (window._prum && window._prum.push !== Array.prototype.push);
 };
 
-}, {"analytics.js-integration":84,"global-queue":125,"load-date":170}],
+}, {"analytics.js-integration":84,"global-queue":125,"load-date":171}],
 65: [function(require, module, exports) {
 
 /**
@@ -12988,7 +13075,7 @@ function convertDate(date){
   return Math.floor(date / 1000);
 }
 
-}, {"analytics.js-integration":84,"convert-dates":175,"global-queue":125,"alias":174}],
+}, {"analytics.js-integration":84,"convert-dates":176,"global-queue":125,"alias":175}],
 67: [function(require, module, exports) {
 
 /**
@@ -13807,7 +13894,7 @@ Trakio.prototype.alias = function(alias){
   }
 };
 
-}, {"analytics.js-integration":84,"alias":174,"clone":173}],
+}, {"analytics.js-integration":84,"alias":175,"clone":174}],
 76: [function(require, module, exports) {
 
 /**
@@ -14123,8 +14210,8 @@ function showClassicWidget(type, options){
   push(type, 'classic_widget', options);
 }
 
-}, {"analytics.js-integration":84,"global-queue":125,"convert-dates":175,"to-unix-timestamp":182,"alias":174,"clone":173}],
-182: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"global-queue":125,"convert-dates":176,"to-unix-timestamp":183,"alias":175,"clone":174}],
+183: [function(require, module, exports) {
 
 /**
  * Expose `toUnixTimestamp`.
@@ -14232,8 +14319,8 @@ Vero.prototype.track = function(track){
   push('track', track.event(), track.properties());
 };
 
-}, {"analytics.js-integration":84,"global-queue":125,"component/cookie":183}],
-183: [function(require, module, exports) {
+}, {"analytics.js-integration":84,"global-queue":125,"component/cookie":184}],
+184: [function(require, module, exports) {
 /**
  * Encode.
  */
@@ -14579,7 +14666,7 @@ Woopra.prototype.track = function(track){
   window.woopra.track(track.event(), track.properties());
 };
 
-}, {"analytics.js-integration":84,"to-snake-case":85,"is-email":165,"extend":126,"each":4,"type":7}],
+}, {"analytics.js-integration":84,"to-snake-case":85,"is-email":166,"extend":126,"each":4,"type":7}],
 83: [function(require, module, exports) {
 
 /**
@@ -15312,8 +15399,8 @@ function message(Type, msg){
   return new Type(msg);
 }
 
-}, {"after":106,"bind":184,"callback":89,"canonical":177,"clone":90,"./cookie":185,"debug":186,"defaults":92,"each":4,"emitter":103,"./group":187,"is":87,"is-email":165,"is-meta":188,"new-date":142,"event":189,"prevent":190,"querystring":191,"object":176,"./store":192,"url":178,"./user":193,"facade":128}],
-184: [function(require, module, exports) {
+}, {"after":106,"bind":185,"callback":89,"canonical":178,"clone":90,"./cookie":186,"debug":187,"defaults":92,"each":4,"emitter":103,"./group":188,"is":87,"is-email":166,"is-meta":189,"new-date":142,"event":190,"prevent":191,"querystring":192,"object":177,"./store":193,"url":179,"./user":194,"facade":128}],
+185: [function(require, module, exports) {
 
 try {
   var bind = require('bind');
@@ -15360,7 +15447,7 @@ function bindMethods (obj, methods) {
   return obj;
 }
 }, {"bind":96,"bind-all":97}],
-185: [function(require, module, exports) {
+186: [function(require, module, exports) {
 
 var debug = require('debug')('analytics.js:cookie');
 var bind = require('bind');
@@ -15488,16 +15575,16 @@ module.exports = bind.all(new Cookie());
 
 module.exports.Cookie = Cookie;
 
-}, {"debug":186,"bind":184,"cookie":183,"clone":90,"defaults":92,"json":194,"top-domain":195}],
-186: [function(require, module, exports) {
+}, {"debug":187,"bind":185,"cookie":184,"clone":90,"defaults":92,"json":195,"top-domain":196}],
+187: [function(require, module, exports) {
 if ('undefined' == typeof window) {
   module.exports = require('./lib/debug');
 } else {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":196,"./debug":197}],
-196: [function(require, module, exports) {
+}, {"./lib/debug":197,"./debug":198}],
+197: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -15647,7 +15734,7 @@ function coerce(val) {
 }
 
 }, {}],
-197: [function(require, module, exports) {
+198: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -15787,7 +15874,7 @@ try {
 } catch(e){}
 
 }, {}],
-194: [function(require, module, exports) {
+195: [function(require, module, exports) {
 
 var json = window.JSON || {};
 var stringify = json.stringify;
@@ -15797,8 +15884,8 @@ module.exports = parse && stringify
   ? JSON
   : require('json-fallback');
 
-}, {"json-fallback":198}],
-198: [function(require, module, exports) {
+}, {"json-fallback":199}],
+199: [function(require, module, exports) {
 /*
     json2.js
     2014-02-04
@@ -16288,7 +16375,7 @@ module.exports = parse && stringify
 }());
 
 }, {}],
-195: [function(require, module, exports) {
+196: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16336,8 +16423,8 @@ function domain(url){
   return match ? match[0] : '';
 };
 
-}, {"url":178}],
-187: [function(require, module, exports) {
+}, {"url":179}],
+188: [function(require, module, exports) {
 
 var debug = require('debug')('analytics:group');
 var Entity = require('./entity');
@@ -16393,8 +16480,8 @@ module.exports = bind.all(new Group());
 
 module.exports.Group = Group;
 
-}, {"debug":186,"./entity":199,"inherit":200,"bind":184}],
-199: [function(require, module, exports) {
+}, {"debug":187,"./entity":200,"inherit":201,"bind":185}],
+200: [function(require, module, exports) {
 
 var traverse = require('isodate-traverse');
 var defaults = require('defaults');
@@ -16595,8 +16682,8 @@ Entity.prototype.load = function () {
 };
 
 
-}, {"isodate-traverse":141,"defaults":92,"./cookie":185,"./store":192,"extend":126,"clone":90}],
-192: [function(require, module, exports) {
+}, {"isodate-traverse":141,"defaults":92,"./cookie":186,"./store":193,"extend":126,"clone":90}],
+193: [function(require, module, exports) {
 
 var bind = require('bind');
 var defaults = require('defaults');
@@ -16683,8 +16770,8 @@ module.exports = bind.all(new Store());
 
 module.exports.Store = Store;
 
-}, {"bind":184,"defaults":92,"store.js":201}],
-201: [function(require, module, exports) {
+}, {"bind":185,"defaults":92,"store.js":202}],
+202: [function(require, module, exports) {
 var json             = require('json')
   , store            = {}
   , win              = window
@@ -16836,8 +16923,8 @@ try {
 store.enabled = !store.disabled
 
 module.exports = store;
-}, {"json":194}],
-200: [function(require, module, exports) {
+}, {"json":195}],
+201: [function(require, module, exports) {
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -16846,7 +16933,7 @@ module.exports = function(a, b){
   a.prototype.constructor = a;
 };
 }, {}],
-188: [function(require, module, exports) {
+189: [function(require, module, exports) {
 module.exports = function isMeta (e) {
     if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return true;
 
@@ -16862,7 +16949,7 @@ module.exports = function isMeta (e) {
     return false;
 };
 }, {}],
-189: [function(require, module, exports) {
+190: [function(require, module, exports) {
 
 /**
  * Bind `el` event `type` to `fn`.
@@ -16905,7 +16992,7 @@ exports.unbind = function(el, type, fn, capture){
 };
 
 }, {}],
-190: [function(require, module, exports) {
+191: [function(require, module, exports) {
 
 /**
  * prevent default on the given `e`.
@@ -16928,7 +17015,7 @@ module.exports = function(e){
 };
 
 }, {}],
-191: [function(require, module, exports) {
+192: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17003,8 +17090,8 @@ exports.stringify = function(obj){
   return pairs.join('&');
 };
 
-}, {"trim":166,"type":7}],
-193: [function(require, module, exports) {
+}, {"trim":167,"type":7}],
+194: [function(require, module, exports) {
 
 var debug = require('debug')('analytics:user');
 var Entity = require('./entity');
@@ -17090,7 +17177,7 @@ module.exports = bind.all(new User());
 
 module.exports.User = User;
 
-}, {"debug":186,"./entity":199,"inherit":200,"bind":184,"./cookie":185}],
+}, {"debug":187,"./entity":200,"inherit":201,"bind":185,"./cookie":186}],
 5: [function(require, module, exports) {
 
 module.exports = '2.3.12';
