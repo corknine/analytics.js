@@ -4148,7 +4148,9 @@ Attribution.prototype.track = function(track) {
   var user = this.analytics.user();
   if(user.id())
     properties.user_id = user.id();
-  push('track', event, properties);
+  properties.event = event;
+  properties.timestamp = track.timestamp();
+  push('track', properties);
 }
 
 /**
