@@ -4103,8 +4103,6 @@ module.exports = function loadScript(options, fn){
 var integration = require('analytics.js-integration');
 var push        = require('global-queue')('_attrq');
 
-var user;
-
 /**
  * Expose `Attribution IO` integration.
  */
@@ -4143,14 +4141,10 @@ Attribution.prototype.page = function(page){
  */
 
 Attribution.prototype.track = function(track) {
-  var user = this.analytics.user();
   var data = {
     properties: track.properties(),
     event:      track.event()
   }
-
-  if(user.id())
-    data.user_id = user.id();
 
   push('track', data);
 }
