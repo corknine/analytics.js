@@ -4110,7 +4110,7 @@ var push        = require('global-queue')('_attrq');
 var Attribution = module.exports = integration('Attribution')
   .global('_attrq')
   .option('projectId', '')
-  .tag('library', '<script src="//d279x8308vq8mj.cloudfront.net/attribution.js">');
+  .tag('library', '<script src="//scripts.attributionapp.com/attribution.js">');
 
 /**
  * Initialize.
@@ -4122,6 +4122,16 @@ Attribution.prototype.initialize = function(){
   window.Attribution = window.Attribution || {};
   window.Attribution.projectId = this.options.projectId;
   this.load('library',this.ready);
+};
+
+/**
+ * Loaded?
+ *
+ * @return {Boolean}
+ */
+
+Attribution.prototype.loaded = function(){
+  return !!(window._attrq);
 };
 
 /**
@@ -4159,16 +4169,6 @@ Attribution.prototype.identify = function(identify){
   var traits = identify.traits();
   var id = identify.userId();
   if (id) push('identify', { user_id: id,  traits: traits });
-};
-
-/**
- * Loaded?
- *
- * @return {Boolean}
- */
-
-Attribution.prototype.loaded = function(){
-  return !!(window._attrq);
 };
 
 }, {"analytics.js-integration":84,"global-queue":125}],
@@ -7238,10 +7238,16 @@ exports.stringify = function(obj){
 module.exports = substitute;
 
 /**
+ * Type.
+ */
+
+var type = Object.prototype.toString;
+
+/**
  * Substitute `:prop` with the given `obj` in `str`
  *
  * @param {String} str
- * @param {Object} obj
+ * @param {Object or Array} obj
  * @param {RegExp} expr
  * @return {String}
  * @api public
@@ -7251,9 +7257,13 @@ function substitute(str, obj, expr){
   if (!obj) throw new TypeError('expected an object');
   expr = expr || /:(\w+)/g;
   return str.replace(expr, function(_, prop){
-    return null != obj[prop]
-      ? obj[prop]
-      : _;
+    switch (type.call(obj)) {
+      case '[object Object]':
+        return null != obj[prop] ? obj[prop] : _;
+      case '[object Array]':
+        var val = obj.shift();
+        return null != val ? val : _;
+    }
   });
 }
 
