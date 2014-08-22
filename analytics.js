@@ -4131,7 +4131,7 @@ Attribution.prototype.initialize = function(){
  */
 
 Attribution.prototype.loaded = function(){
-  return !!(window._attrq);
+  return !!(window._attrq);
 };
 
 /**
@@ -4617,11 +4617,12 @@ Facade.Screen = require('./screen');
 }, {"./facade":131,"./alias":132,"./group":133,"./identify":134,"./track":135,"./page":136,"./screen":137}],
 131: [function(require, module, exports) {
 
+var traverse = require('isodate-traverse');
+var isEnabled = require('./is-enabled');
 var clone = require('./utils').clone;
 var type = require('./utils').type;
-var isEnabled = require('./is-enabled');
+var address = require('./address');
 var objCase = require('obj-case');
-var traverse = require('isodate-traverse');
 var newDate = require('new-date');
 
 /**
@@ -4642,6 +4643,12 @@ function Facade (obj) {
   traverse(obj);
   this.obj = obj;
 }
+
+/**
+ * Mixin address traits.
+ */
+
+address(Facade.prototype);
 
 /**
  * Return a proxy function for a `field` that will attempt to first use methods,
@@ -4918,8 +4925,252 @@ function transform(obj){
   return cloned;
 }
 
-}, {"./utils":138,"./is-enabled":139,"obj-case":140,"isodate-traverse":141,"new-date":142}],
+}, {"isodate-traverse":138,"./is-enabled":139,"./utils":140,"./address":141,"obj-case":142,"new-date":143}],
 138: [function(require, module, exports) {
+
+var is = require('is');
+var isodate = require('isodate');
+var each;
+
+try {
+  each = require('each');
+} catch (err) {
+  each = require('each-component');
+}
+
+/**
+ * Expose `traverse`.
+ */
+
+module.exports = traverse;
+
+/**
+ * Traverse an object or array, and return a clone with all ISO strings parsed
+ * into Date objects.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ */
+
+function traverse (input, strict) {
+  if (strict === undefined) strict = true;
+
+  if (is.object(input)) return object(input, strict);
+  if (is.array(input)) return array(input, strict);
+  return input;
+}
+
+/**
+ * Object traverser.
+ *
+ * @param {Object} obj
+ * @param {Boolean} strict
+ * @return {Object}
+ */
+
+function object (obj, strict) {
+  each(obj, function (key, val) {
+    if (isodate.is(val, strict)) {
+      obj[key] = isodate.parse(val);
+    } else if (is.object(val) || is.array(val)) {
+      traverse(val, strict);
+    }
+  });
+  return obj;
+}
+
+/**
+ * Array traverser.
+ *
+ * @param {Array} arr
+ * @param {Boolean} strict
+ * @return {Array}
+ */
+
+function array (arr, strict) {
+  each(arr, function (val, x) {
+    if (is.object(val)) {
+      traverse(val, strict);
+    } else if (isodate.is(val, strict)) {
+      arr[x] = isodate.parse(val);
+    }
+  });
+  return arr;
+}
+
+}, {"is":144,"isodate":145,"each":4}],
+144: [function(require, module, exports) {
+
+var isEmpty = require('is-empty');
+
+try {
+  var typeOf = require('type');
+} catch (e) {
+  var typeOf = require('component-type');
+}
+
+
+/**
+ * Types.
+ */
+
+var types = [
+  'arguments',
+  'array',
+  'boolean',
+  'date',
+  'element',
+  'function',
+  'null',
+  'number',
+  'object',
+  'regexp',
+  'string',
+  'undefined'
+];
+
+
+/**
+ * Expose type checkers.
+ *
+ * @param {Mixed} value
+ * @return {Boolean}
+ */
+
+for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
+
+
+/**
+ * Add alias for `function` for old browsers.
+ */
+
+exports.fn = exports['function'];
+
+
+/**
+ * Expose `empty` check.
+ */
+
+exports.empty = isEmpty;
+
+
+/**
+ * Expose `nan` check.
+ */
+
+exports.nan = function (val) {
+  return exports.number(val) && val != val;
+};
+
+
+/**
+ * Generate a type checker.
+ *
+ * @param {String} type
+ * @return {Function}
+ */
+
+function generate (type) {
+  return function (value) {
+    return type === typeOf(value);
+  };
+}
+}, {"is-empty":119,"type":7,"component-type":7}],
+145: [function(require, module, exports) {
+
+/**
+ * Matcher, slightly modified from:
+ *
+ * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
+ */
+
+var matcher = /^(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?(?:([ T])(\d{2}):?(\d{2})(?::?(\d{2})(?:[,\.](\d{1,}))?)?(?:(Z)|([+\-])(\d{2})(?::?(\d{2}))?)?)?$/;
+
+
+/**
+ * Convert an ISO date string to a date. Fallback to native `Date.parse`.
+ *
+ * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
+ *
+ * @param {String} iso
+ * @return {Date}
+ */
+
+exports.parse = function (iso) {
+  var numericKeys = [1, 5, 6, 7, 11, 12];
+  var arr = matcher.exec(iso);
+  var offset = 0;
+
+  // fallback to native parsing
+  if (!arr) return new Date(iso);
+
+  // remove undefined values
+  for (var i = 0, val; val = numericKeys[i]; i++) {
+    arr[val] = parseInt(arr[val], 10) || 0;
+  }
+
+  // allow undefined days and months
+  arr[2] = parseInt(arr[2], 10) || 1;
+  arr[3] = parseInt(arr[3], 10) || 1;
+
+  // month is 0-11
+  arr[2]--;
+
+  // allow abitrary sub-second precision
+  arr[8] = arr[8]
+    ? (arr[8] + '00').substring(0, 3)
+    : 0;
+
+  // apply timezone if one exists
+  if (arr[4] == ' ') {
+    offset = new Date().getTimezoneOffset();
+  } else if (arr[9] !== 'Z' && arr[10]) {
+    offset = arr[11] * 60 + arr[12];
+    if ('+' == arr[10]) offset = 0 - offset;
+  }
+
+  var millis = Date.UTC(arr[1], arr[2], arr[3], arr[5], arr[6] + offset, arr[7], arr[8]);
+  return new Date(millis);
+};
+
+
+/**
+ * Checks whether a `string` is an ISO date string. `strict` mode requires that
+ * the date string at least have a year, month and date.
+ *
+ * @param {String} string
+ * @param {Boolean} strict
+ * @return {Boolean}
+ */
+
+exports.is = function (string, strict) {
+  if (strict && false === /^\d{4}-\d{2}-\d{2}/.test(string)) return false;
+  return matcher.test(string);
+};
+}, {}],
+139: [function(require, module, exports) {
+
+/**
+ * A few integrations are disabled by default. They must be explicitly
+ * enabled by setting options[Provider] = true.
+ */
+
+var disabled = {
+  Salesforce: true
+};
+
+/**
+ * Check whether an integration should be enabled by default.
+ *
+ * @param {String} integration
+ * @return {Boolean}
+ */
+
+module.exports = function (integration) {
+  return ! disabled[integration];
+};
+}, {}],
+140: [function(require, module, exports) {
 
 /**
  * TODO: use component symlink, everywhere ?
@@ -4935,8 +5186,8 @@ try {
   exports.type = require('type-component');
 }
 
-}, {"inherit":143,"clone":144,"type":7}],
-143: [function(require, module, exports) {
+}, {"inherit":146,"clone":147,"type":7}],
+146: [function(require, module, exports) {
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -4945,7 +5196,7 @@ module.exports = function(a, b){
   a.prototype.constructor = a;
 };
 }, {}],
-144: [function(require, module, exports) {
+147: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -5005,29 +5256,40 @@ function clone(obj){
 }
 
 }, {"component-type":7,"type":7}],
-139: [function(require, module, exports) {
+141: [function(require, module, exports) {
 
 /**
- * A few integrations are disabled by default. They must be explicitly
- * enabled by setting options[Provider] = true.
+ * Module dependencies.
  */
 
-var disabled = {
-  Salesforce: true
-};
+var get = require('obj-case');
 
 /**
- * Check whether an integration should be enabled by default.
+ * Add address getters to `proto`.
  *
- * @param {String} integration
- * @return {Boolean}
+ * @param {Function} proto
  */
 
-module.exports = function (integration) {
-  return ! disabled[integration];
+module.exports = function(proto){
+  proto.zip = trait('postalCode', 'zip');
+  proto.country = trait('country');
+  proto.street = trait('street');
+  proto.state = trait('state');
+  proto.city = trait('city');
+
+  function trait(a, b){
+    return function(){
+      var traits = this.traits();
+      return get(traits, 'address.' + a)
+        || get(traits, a)
+        || (b ? get(traits, 'address.' + b) : null)
+        || (b ? get(traits, b) : null);
+    };
+  }
 };
-}, {}],
-140: [function(require, module, exports) {
+
+}, {"obj-case":142}],
+142: [function(require, module, exports) {
 
 var Case = require('case');
 var identity = function(_){ return _; };
@@ -5143,8 +5405,8 @@ function replace (obj, key, val) {
   return obj;
 }
 
-}, {"case":145}],
-145: [function(require, module, exports) {
+}, {"case":148}],
+148: [function(require, module, exports) {
 
 var cases = require('./cases');
 
@@ -5192,8 +5454,8 @@ exports.add = function (name, convert) {
 for (var key in cases) {
   exports.add(key, cases[key]);
 }
-}, {"./cases":146}],
-146: [function(require, module, exports) {
+}, {"./cases":149}],
+149: [function(require, module, exports) {
 
 var camel = require('to-camel-case')
   , capital = require('to-capital-case')
@@ -5327,8 +5589,8 @@ exports.inverse = function (string) {
  */
 
 exports.none = none;
-}, {"to-camel-case":147,"to-capital-case":148,"to-constant-case":149,"to-dot-case":150,"to-no-case":118,"to-pascal-case":151,"to-sentence-case":152,"to-slug-case":153,"to-snake-case":154,"to-space-case":155,"to-title-case":156}],
-147: [function(require, module, exports) {
+}, {"to-camel-case":150,"to-capital-case":151,"to-constant-case":152,"to-dot-case":153,"to-no-case":118,"to-pascal-case":154,"to-sentence-case":155,"to-slug-case":156,"to-snake-case":157,"to-space-case":158,"to-title-case":159}],
+150: [function(require, module, exports) {
 
 var toSpace = require('to-space-case');
 
@@ -5353,8 +5615,8 @@ function toCamelCase (string) {
     return letter.toUpperCase();
   });
 }
-}, {"to-space-case":155}],
-155: [function(require, module, exports) {
+}, {"to-space-case":158}],
+158: [function(require, module, exports) {
 
 var clean = require('to-no-case');
 
@@ -5380,7 +5642,7 @@ function toSpaceCase (string) {
   });
 }
 }, {"to-no-case":118}],
-148: [function(require, module, exports) {
+151: [function(require, module, exports) {
 
 var clean = require('to-no-case');
 
@@ -5406,7 +5668,7 @@ function toCapitalCase (string) {
   });
 }
 }, {"to-no-case":118}],
-149: [function(require, module, exports) {
+152: [function(require, module, exports) {
 
 var snake = require('to-snake-case');
 
@@ -5429,8 +5691,8 @@ module.exports = toConstantCase;
 function toConstantCase (string) {
   return snake(string).toUpperCase();
 }
-}, {"to-snake-case":154}],
-154: [function(require, module, exports) {
+}, {"to-snake-case":157}],
+157: [function(require, module, exports) {
 var toSpace = require('to-space-case');
 
 
@@ -5453,8 +5715,8 @@ function toSnakeCase (string) {
   return toSpace(string).replace(/\s/g, '_');
 }
 
-}, {"to-space-case":155}],
-150: [function(require, module, exports) {
+}, {"to-space-case":158}],
+153: [function(require, module, exports) {
 
 var toSpace = require('to-space-case');
 
@@ -5477,8 +5739,8 @@ module.exports = toDotCase;
 function toDotCase (string) {
   return toSpace(string).replace(/\s/g, '.');
 }
-}, {"to-space-case":155}],
-151: [function(require, module, exports) {
+}, {"to-space-case":158}],
+154: [function(require, module, exports) {
 
 var toSpace = require('to-space-case');
 
@@ -5503,8 +5765,8 @@ function toPascalCase (string) {
     return letter.toUpperCase();
   });
 }
-}, {"to-space-case":155}],
-152: [function(require, module, exports) {
+}, {"to-space-case":158}],
+155: [function(require, module, exports) {
 
 var clean = require('to-no-case');
 
@@ -5530,7 +5792,7 @@ function toSentenceCase (string) {
   });
 }
 }, {"to-no-case":118}],
-153: [function(require, module, exports) {
+156: [function(require, module, exports) {
 
 var toSpace = require('to-space-case');
 
@@ -5553,8 +5815,8 @@ module.exports = toSlugCase;
 function toSlugCase (string) {
   return toSpace(string).replace(/\s/g, '-');
 }
-}, {"to-space-case":155}],
-156: [function(require, module, exports) {
+}, {"to-space-case":158}],
+159: [function(require, module, exports) {
 
 var capital = require('to-capital-case')
   , escape = require('escape-regexp')
@@ -5595,8 +5857,8 @@ function toTitleCase (string) {
       return letter.toUpperCase();
     });
 }
-}, {"to-capital-case":148,"escape-regexp":157,"map":158,"title-case-minors":159}],
-157: [function(require, module, exports) {
+}, {"to-capital-case":151,"escape-regexp":160,"map":161,"title-case-minors":162}],
+160: [function(require, module, exports) {
 
 /**
  * Escape regexp special characters in `str`.
@@ -5610,7 +5872,7 @@ module.exports = function(str){
   return String(str).replace(/([.*+?=^!:${}()|[\]\/\\])/g, '\\$1');
 };
 }, {}],
-158: [function(require, module, exports) {
+161: [function(require, module, exports) {
 
 var each = require('each');
 
@@ -5631,7 +5893,7 @@ module.exports = function map (obj, iterator) {
   return arr;
 };
 }, {"each":107}],
-159: [function(require, module, exports) {
+162: [function(require, module, exports) {
 
 module.exports = [
   'a',
@@ -5676,229 +5938,7 @@ module.exports = [
   'yet'
 ];
 }, {}],
-141: [function(require, module, exports) {
-
-var is = require('is');
-var isodate = require('isodate');
-var each;
-
-try {
-  each = require('each');
-} catch (err) {
-  each = require('each-component');
-}
-
-/**
- * Expose `traverse`.
- */
-
-module.exports = traverse;
-
-/**
- * Traverse an object or array, and return a clone with all ISO strings parsed
- * into Date objects.
- *
- * @param {Object} obj
- * @return {Object}
- */
-
-function traverse (input, strict) {
-  if (strict === undefined) strict = true;
-
-  if (is.object(input)) return object(input, strict);
-  if (is.array(input)) return array(input, strict);
-  return input;
-}
-
-/**
- * Object traverser.
- *
- * @param {Object} obj
- * @param {Boolean} strict
- * @return {Object}
- */
-
-function object (obj, strict) {
-  each(obj, function (key, val) {
-    if (isodate.is(val, strict)) {
-      obj[key] = isodate.parse(val);
-    } else if (is.object(val) || is.array(val)) {
-      traverse(val, strict);
-    }
-  });
-  return obj;
-}
-
-/**
- * Array traverser.
- *
- * @param {Array} arr
- * @param {Boolean} strict
- * @return {Array}
- */
-
-function array (arr, strict) {
-  each(arr, function (val, x) {
-    if (is.object(val)) {
-      traverse(val, strict);
-    } else if (isodate.is(val, strict)) {
-      arr[x] = isodate.parse(val);
-    }
-  });
-  return arr;
-}
-
-}, {"is":160,"isodate":161,"each":4}],
-160: [function(require, module, exports) {
-
-var isEmpty = require('is-empty');
-
-try {
-  var typeOf = require('type');
-} catch (e) {
-  var typeOf = require('component-type');
-}
-
-
-/**
- * Types.
- */
-
-var types = [
-  'arguments',
-  'array',
-  'boolean',
-  'date',
-  'element',
-  'function',
-  'null',
-  'number',
-  'object',
-  'regexp',
-  'string',
-  'undefined'
-];
-
-
-/**
- * Expose type checkers.
- *
- * @param {Mixed} value
- * @return {Boolean}
- */
-
-for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
-
-
-/**
- * Add alias for `function` for old browsers.
- */
-
-exports.fn = exports['function'];
-
-
-/**
- * Expose `empty` check.
- */
-
-exports.empty = isEmpty;
-
-
-/**
- * Expose `nan` check.
- */
-
-exports.nan = function (val) {
-  return exports.number(val) && val != val;
-};
-
-
-/**
- * Generate a type checker.
- *
- * @param {String} type
- * @return {Function}
- */
-
-function generate (type) {
-  return function (value) {
-    return type === typeOf(value);
-  };
-}
-}, {"is-empty":119,"type":7,"component-type":7}],
-161: [function(require, module, exports) {
-
-/**
- * Matcher, slightly modified from:
- *
- * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
- */
-
-var matcher = /^(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?(?:([ T])(\d{2}):?(\d{2})(?::?(\d{2})(?:[,\.](\d{1,}))?)?(?:(Z)|([+\-])(\d{2})(?::?(\d{2}))?)?)?$/;
-
-
-/**
- * Convert an ISO date string to a date. Fallback to native `Date.parse`.
- *
- * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
- *
- * @param {String} iso
- * @return {Date}
- */
-
-exports.parse = function (iso) {
-  var numericKeys = [1, 5, 6, 7, 11, 12];
-  var arr = matcher.exec(iso);
-  var offset = 0;
-
-  // fallback to native parsing
-  if (!arr) return new Date(iso);
-
-  // remove undefined values
-  for (var i = 0, val; val = numericKeys[i]; i++) {
-    arr[val] = parseInt(arr[val], 10) || 0;
-  }
-
-  // allow undefined days and months
-  arr[2] = parseInt(arr[2], 10) || 1;
-  arr[3] = parseInt(arr[3], 10) || 1;
-
-  // month is 0-11
-  arr[2]--;
-
-  // allow abitrary sub-second precision
-  arr[8] = arr[8]
-    ? (arr[8] + '00').substring(0, 3)
-    : 0;
-
-  // apply timezone if one exists
-  if (arr[4] == ' ') {
-    offset = new Date().getTimezoneOffset();
-  } else if (arr[9] !== 'Z' && arr[10]) {
-    offset = arr[11] * 60 + arr[12];
-    if ('+' == arr[10]) offset = 0 - offset;
-  }
-
-  var millis = Date.UTC(arr[1], arr[2], arr[3], arr[5], arr[6] + offset, arr[7], arr[8]);
-  return new Date(millis);
-};
-
-
-/**
- * Checks whether a `string` is an ISO date string. `strict` mode requires that
- * the date string at least have a year, month and date.
- *
- * @param {String} string
- * @param {Boolean} strict
- * @return {Boolean}
- */
-
-exports.is = function (string, strict) {
-  if (strict && false === /^\d{4}-\d{2}-\d{2}/.test(string)) return false;
-  return matcher.test(string);
-};
-}, {}],
-142: [function(require, module, exports) {
+143: [function(require, module, exports) {
 
 var is = require('is');
 var isodate = require('isodate');
@@ -5938,8 +5978,8 @@ function toMs (num) {
   if (num < 31557600000) return num * 1000;
   return num;
 }
-}, {"is":162,"isodate":161,"./milliseconds":163,"./seconds":164}],
-162: [function(require, module, exports) {
+}, {"is":163,"isodate":145,"./milliseconds":164,"./seconds":165}],
+163: [function(require, module, exports) {
 
 var isEmpty = require('is-empty')
   , typeOf = require('type');
@@ -6011,7 +6051,7 @@ function generate (type) {
   };
 }
 }, {"is-empty":119,"type":7}],
-163: [function(require, module, exports) {
+164: [function(require, module, exports) {
 
 /**
  * Matcher.
@@ -6044,7 +6084,7 @@ exports.parse = function (millis) {
   return new Date(millis);
 };
 }, {}],
-164: [function(require, module, exports) {
+165: [function(require, module, exports) {
 
 /**
  * Matcher.
@@ -6148,7 +6188,7 @@ Alias.prototype.userId = function(){
     || this.field('to');
 };
 
-}, {"./utils":138,"./facade":131}],
+}, {"./utils":140,"./facade":131}],
 133: [function(require, module, exports) {
 
 /**
@@ -6186,12 +6226,6 @@ function Group (dictionary) {
  */
 
 inherit(Group, Facade);
-
-/**
- * Mixin address traits.
- */
-
-address(Group.prototype);
 
 /**
  * Get the facade's action.
@@ -6284,40 +6318,7 @@ Group.prototype.properties = function(){
     || {};
 };
 
-}, {"./utils":138,"./address":165,"is-email":166,"new-date":142,"./facade":131}],
-165: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var get = require('obj-case');
-
-/**
- * Add address getters to `proto`.
- *
- * @param {Function} proto
- */
-
-module.exports = function(proto){
-  proto.zip = trait('postalCode', 'zip');
-  proto.country = trait('country');
-  proto.street = trait('street');
-  proto.state = trait('state');
-  proto.city = trait('city');
-
-  function trait(a, b){
-    return function(){
-      var traits = this.traits();
-      return get(traits, 'address.' + a)
-        || get(traits, a)
-        || (b ? get(traits, 'address.' + b) : null)
-        || (b ? get(traits, b) : null);
-    };
-  }
-};
-
-}, {"obj-case":140}],
+}, {"./utils":140,"./address":141,"is-email":166,"new-date":143,"./facade":131}],
 166: [function(require, module, exports) {
 
 /**
@@ -6383,12 +6384,6 @@ function Identify (dictionary) {
  */
 
 inherit(Identify, Facade);
-
-/**
- * Mixin address traits.
- */
-
-address(Identify.prototype);
 
 /**
  * Get the facade's action.
@@ -6601,7 +6596,7 @@ Identify.prototype.address = Facade.proxy('traits.address');
 Identify.prototype.gender = Facade.proxy('traits.gender');
 Identify.prototype.birthday = Facade.proxy('traits.birthday');
 
-}, {"./address":165,"./facade":131,"is-email":166,"new-date":142,"./utils":138,"obj-case":140,"trim":167}],
+}, {"./address":141,"./facade":131,"is-email":166,"new-date":143,"./utils":140,"obj-case":142,"trim":167}],
 167: [function(require, module, exports) {
 
 exports = module.exports = trim;
@@ -6699,6 +6694,18 @@ Track.prototype.price = Facade.proxy('properties.price');
 Track.prototype.total = Facade.proxy('properties.total');
 Track.prototype.coupon = Facade.proxy('properties.coupon');
 Track.prototype.shipping = Facade.proxy('properties.shipping');
+
+/**
+ * Description
+ */
+
+Track.prototype.description = Facade.proxy('properties.description');
+
+/**
+ * Plan
+ */
+
+Track.prototype.plan = Facade.proxy('properties.plan');
 
 /**
  * Order id.
@@ -6902,7 +6909,7 @@ function currency(val) {
   if (!isNaN(val)) return val;
 }
 
-}, {"./utils":138,"./facade":131,"./identify":134,"is-email":166,"obj-case":140}],
+}, {"./utils":140,"./facade":131,"./identify":134,"is-email":166,"obj-case":142}],
 136: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
@@ -7019,7 +7026,7 @@ Page.prototype.track = function(name){
   });
 };
 
-}, {"./utils":138,"./facade":131,"./track":135}],
+}, {"./utils":140,"./facade":131,"./track":135}],
 137: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
@@ -7096,7 +7103,7 @@ Screen.prototype.track = function(name){
   });
 };
 
-}, {"./utils":138,"./page":136,"./track":135}],
+}, {"./utils":140,"./page":136,"./track":135}],
 129: [function(require, module, exports) {
 
 /**
@@ -8384,7 +8391,7 @@ function aliasByFunction (obj, convert) {
   for (var key in obj) output[convert(key)] = obj[key];
   return output;
 }
-}, {"type":7,"clone":144}],
+}, {"type":7,"clone":147}],
 176: [function(require, module, exports) {
 
 var is = require('is');
@@ -9722,7 +9729,7 @@ function metrics(obj, data){
   return ret;
 }
 
-}, {"analytics.js-integration":84,"global-queue":125,"object":177,"canonical":178,"use-https":86,"facade":128,"callback":89,"load-script":124,"obj-case":140,"each":4,"type":7,"url":179,"is":87}],
+}, {"analytics.js-integration":84,"global-queue":125,"object":177,"canonical":178,"use-https":86,"facade":128,"callback":89,"load-script":124,"obj-case":142,"each":4,"type":7,"url":179,"is":87}],
 177: [function(require, module, exports) {
 
 /**
@@ -12194,7 +12201,7 @@ function lowercase(arr){
   return ret;
 }
 
-}, {"alias":175,"clone":174,"convert-dates":176,"analytics.js-integration":84,"is":87,"to-iso-string":173,"indexof":110,"obj-case":140,"some":182}],
+}, {"alias":175,"clone":174,"convert-dates":176,"analytics.js-integration":84,"is":87,"to-iso-string":173,"indexof":110,"obj-case":142,"some":182}],
 182: [function(require, module, exports) {
 
 /**
@@ -15403,7 +15410,7 @@ function message(Type, msg){
   return new Type(msg);
 }
 
-}, {"after":106,"bind":185,"callback":89,"canonical":178,"clone":90,"./cookie":186,"debug":187,"defaults":92,"each":4,"emitter":103,"./group":188,"is":87,"is-email":166,"is-meta":189,"new-date":142,"event":190,"prevent":191,"querystring":192,"object":177,"./store":193,"url":179,"./user":194,"facade":128}],
+}, {"after":106,"bind":185,"callback":89,"canonical":178,"clone":90,"./cookie":186,"debug":187,"defaults":92,"each":4,"emitter":103,"./group":188,"is":87,"is-email":166,"is-meta":189,"new-date":143,"event":190,"prevent":191,"querystring":192,"object":177,"./store":193,"url":179,"./user":194,"facade":128}],
 185: [function(require, module, exports) {
 
 try {
@@ -16686,7 +16693,7 @@ Entity.prototype.load = function () {
 };
 
 
-}, {"isodate-traverse":141,"defaults":92,"./cookie":186,"./store":193,"extend":126,"clone":90}],
+}, {"isodate-traverse":138,"defaults":92,"./cookie":186,"./store":193,"extend":126,"clone":90}],
 193: [function(require, module, exports) {
 
 var bind = require('bind');
